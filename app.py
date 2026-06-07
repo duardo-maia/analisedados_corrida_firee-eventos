@@ -3,6 +3,8 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import sqlite3
+import random
+import time
 from pathlib import Path
 
 st.set_page_config(
@@ -31,6 +33,58 @@ st.markdown("""
         padding-left: 12px;
         margin: 24px 0 12px 0;
     }
+    .winner-card {
+        background: linear-gradient(135deg, #1a3a1a, #0d2a0d);
+        border: 2px solid #2ecc71;
+        border-radius: 12px;
+        padding: 16px 20px;
+        margin: 6px 0;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+    }
+    .winner-number {
+        background: #2ecc71;
+        color: #000;
+        font-weight: 800;
+        font-size: 1.1rem;
+        border-radius: 50%;
+        width: 36px;
+        height: 36px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+    .winner-name {
+        color: #ffffff;
+        font-size: 1.05rem;
+        font-weight: 600;
+    }
+    .winner-detail {
+        color: #aac8e4;
+        font-size: 0.82rem;
+    }
+    .sorteio-box {
+        background: linear-gradient(135deg, #1a1a2e, #16213e);
+        border: 2px solid #e94560;
+        border-radius: 16px;
+        padding: 28px;
+        margin: 12px 0;
+    }
+    .pin-locked {
+        text-align: center;
+        padding: 30px;
+    }
+    .confetti-text {
+        font-size: 1.6rem;
+        font-weight: 800;
+        text-align: center;
+        background: linear-gradient(90deg, #FFD700, #FF6B6B, #4ECDC4, #45B7D1);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin: 12px 0;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -49,9 +103,11 @@ GRUPOS_ORDEM = [
     "40 a 49 anos", "50 a 59 anos", "60 anos ou mais", "Sem informação",
 ]
 
+# PIN de liberação — altere aqui para o código que quiser
+PIN_CORRETO = "2026"
+
 DB_PATH = Path(__file__).parent / "corrida.db"
 
-# ── Carrega dados do banco ───────────────────────────────────────────────────
 @st.cache_data
 def carregar_dados():
     if not DB_PATH.exists():
@@ -74,16 +130,9 @@ st.markdown("""
 
 st.divider()
 
-# ── Banco não encontrado ─────────────────────────────────────────────────────
 if df is None:
     st.error("❌ Banco de dados `corrida.db` não encontrado na pasta do app.")
-    st.info("""
-**Para gerar o banco, rode no seu computador:**
-```bash
-python criar_banco.py
-```
-Depois copie o arquivo `corrida.db` para a mesma pasta deste app.
-    """)
+    st.info("Rode `python criar_banco.py` e copie o `corrida.db` para a pasta do app.")
     st.stop()
 
 # ── Sidebar ──────────────────────────────────────────────────────────────────
@@ -107,9 +156,9 @@ idade_med = df["idade"].mean()
 
 cols = st.columns(4)
 metricas = [
-    ("👥", total,                               "Total de inscritos"),
-    ("📊", com_info,                            "Com data de nascimento"),
-    ("❓", sem_info,                            "Sem informação"),
+    ("👥", total, "Total de inscritos"),
+    ("📊", com_info, "Com data de nascimento"),
+    ("❓", sem_info, "Sem informação"),
     ("📅", f"{idade_med:.0f}" if pd.notna(idade_med) else "—", "Idade média"),
 ]
 for col, (icon, val, lbl) in zip(cols, metricas):
@@ -123,7 +172,7 @@ for col, (icon, val, lbl) in zip(cols, metricas):
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# ── Resumo por grupo ─────────────────────────────────────────────────────────
+# ── Tabs principais ───────────────────────────────────────────────────────────
 resumo = (
     df.groupby("grupo_etario")
     .agg(Quantidade=("nome", "count"))
@@ -133,12 +182,16 @@ resumo = (
 )
 resumo["Percentual"] = (resumo["Quantidade"] / total * 100).round(1)
 
-tab1, tab2, tab3 = st.tabs(["📊 Gráficos", "🗂️ Listagem por Grupo", "📋 Tabela Completa"])
+tab1, tab2, tab3, tab4 = st.tabs([
+    "📊 Gráficos",
+    "🗂️ Listagem por Grupo",
+    "📋 Tabela Completa",
+    "🎰 Sorteio",
+])
 
 # ─── Gráficos ─────────────────────────────────────────────────────────────
 with tab1:
     c1, c2 = st.columns(2)
-
     with c1:
         fig_bar = go.Figure()
         for _, row in resumo.iterrows():
@@ -217,22 +270,22 @@ with tab2:
                 border:1px solid {cor}; border-radius:10px;
                 padding:16px; margin-bottom:16px;'>
         <span style='color:{cor}; font-size:1.4rem; font-weight:700;'>{grupo_sel}</span>
-        &nbsp; <span style='color:#fff;'>{len(df_grupo)} participante{"s" if len(df_grupo) != 1 else ""}</span>
+        &nbsp; <span style='color:#fff;'>{len(df_grupo)} participante{"s" if len(df_grupo)!=1 else ""}</span>
     </div>""", unsafe_allow_html=True)
 
     busca = st.text_input("🔍 Filtrar por nome:", key="busca_grupo")
     if busca:
         df_grupo = df_grupo[df_grupo["nome"].str.contains(busca, case=False, na=False)]
 
-    exibir = df_grupo[["nome", "nascimento_fmt", "idade"]].copy()
-    exibir.columns = ["Nome", "Nascimento", "Idade"]
-    exibir.index   = range(1, len(exibir) + 1)
+    exibir = df_grupo[["nome","nascimento_fmt","idade","autoriza_imagem"]].copy()
+    exibir.columns = ["Nome","Nascimento","Idade","Autoriza Imagem"]
+    exibir.index   = range(1, len(exibir)+1)
     st.dataframe(exibir, use_container_width=True)
 
     csv = exibir.to_csv(index=True).encode("utf-8-sig")
     st.download_button(
         f"⬇️ Baixar lista — {grupo_sel}", data=csv,
-        file_name=f"grupo_{grupo_sel.replace(' ', '_')}.csv", mime="text/csv",
+        file_name=f"grupo_{grupo_sel.replace(' ','_')}.csv", mime="text/csv",
     )
 
 # ─── Tabela Completa ──────────────────────────────────────────────────────
@@ -241,7 +294,11 @@ with tab3:
     with c1:
         busca_geral = st.text_input("🔍 Buscar por nome:")
     with c2:
-        grupos_filtro = st.multiselect("Filtrar por grupo:", grupos_disp, default=grupos_disp)
+        grupos_filtro = st.multiselect(
+            "Filtrar por grupo:",
+            options=[g for g in GRUPOS_ORDEM if g in df["grupo_etario"].unique()],
+            default=[g for g in GRUPOS_ORDEM if g in df["grupo_etario"].unique()]
+        )
 
     df_filtrado = df.copy()
     if busca_geral:
@@ -249,10 +306,10 @@ with tab3:
     if grupos_filtro:
         df_filtrado = df_filtrado[df_filtrado["grupo_etario"].isin(grupos_filtro)]
 
-    df_filtrado = df_filtrado.sort_values(["grupo_etario", "nome"])
-    exibir_g    = df_filtrado[["nome","idade", "grupo_etario"]].copy()
-    exibir_g.columns = ["Nome","Idade", "Grupo Etário"]
-    exibir_g.index   = range(1, len(exibir_g) + 1)
+    df_filtrado = df_filtrado.sort_values(["grupo_etario","nome"])
+    exibir_g    = df_filtrado[["nome","nascimento_fmt","idade","grupo_etario","autoriza_imagem"]].copy()
+    exibir_g.columns = ["Nome","Nascimento","Idade","Grupo Etário","Autoriza Imagem"]
+    exibir_g.index   = range(1, len(exibir_g)+1)
     st.dataframe(exibir_g, use_container_width=True)
 
     csv_g = exibir_g.to_csv(index=True).encode("utf-8-sig")
@@ -261,6 +318,190 @@ with tab3:
         file_name="participantes_completo.csv", mime="text/csv",
     )
 
+# ─── SORTEIO ──────────────────────────────────────────────────────────────
+with tab4:
+
+    # Inicializa estado da sessão
+    if "pin_ok"      not in st.session_state: st.session_state.pin_ok      = False
+    if "pin_erros"   not in st.session_state: st.session_state.pin_erros   = 0
+    if "sorteados"   not in st.session_state: st.session_state.sorteados   = []
+    if "historico"   not in st.session_state: st.session_state.historico   = []
+    if "rodada"      not in st.session_state: st.session_state.rodada      = 0
+
+    st.markdown("<div class='section-title'>🎰 Sorteio de Participantes</div>", unsafe_allow_html=True)
+
+    # ── Tela de PIN ──────────────────────────────────────────────────────
+    if not st.session_state.pin_ok:
+        st.markdown("""
+        <div class='sorteio-box'>
+            <div class='pin-locked'>
+                <div style='font-size:3rem;'>🔒</div>
+                <h3 style='color:#e94560; margin:8px 0;'>Área Restrita</h3>
+                <p style='color:#aac8e4;'>Insira o PIN de liberação para acessar o sorteio.</p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        col_pin = st.columns([1, 2, 1])[1]
+        with col_pin:
+            pin_input = st.text_input(
+                "PIN de liberação:",
+                type="password",
+                placeholder="••••",
+                key="pin_input_field",
+                label_visibility="collapsed",
+            )
+            if st.button("🔓 Liberar Sorteio", use_container_width=True, type="primary"):
+                if pin_input == PIN_CORRETO:
+                    st.session_state.pin_ok = True
+                    st.rerun()
+                else:
+                    st.session_state.pin_erros += 1
+                    st.error(f"❌ PIN incorreto. Tentativa {st.session_state.pin_erros}.")
+
+    # ── Área do Sorteio (desbloqueada) ───────────────────────────────────
+    else:
+        # Filtros opcionais
+        with st.expander("⚙️ Configurações do sorteio", expanded=False):
+            grupos_sort = st.multiselect(
+                "Sortear apenas destes grupos (vazio = todos):",
+                options=[g for g in GRUPOS_ORDEM if g in df["grupo_etario"].unique()],
+                default=[],
+                key="grupos_sorteio",
+            )
+            qtd_sorteio = st.slider("Quantidade de sorteados por rodada:", 1, 20, 10)
+            excluir_sem_info = st.checkbox("Excluir participantes sem data de nascimento", value=False)
+
+        # Monta pool
+        pool = df.copy()
+        if excluir_sem_info:
+            pool = pool[pool["grupo_etario"] != "Sem informação"]
+        if grupos_sort:
+            pool = pool[pool["grupo_etario"].isin(grupos_sort)]
+
+        nomes_ja_sorteados = [n for rodada in st.session_state.historico for n in rodada]
+        pool_restante      = pool[~pool["nome"].isin(nomes_ja_sorteados)]
+
+        # Estatísticas do pool
+        c1, c2, c3 = st.columns(3)
+        c1.metric("👥 Pool total",     len(pool))
+        c2.metric("✅ Já sorteados",   len(nomes_ja_sorteados))
+        c3.metric("🎯 Disponíveis",    len(pool_restante))
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        # Botão sortear
+        col_btn1, col_btn2, col_btn3 = st.columns([2, 1, 1])
+
+        with col_btn1:
+            pode_sortear = len(pool_restante) >= 1
+            btn_sortear  = st.button(
+                f"🎰 Realizar Sorteio — Rodada {st.session_state.rodada + 1}",
+                disabled=not pode_sortear,
+                use_container_width=True,
+                type="primary",
+            )
+
+        with col_btn2:
+            btn_limpar = st.button("🔄 Reiniciar tudo", use_container_width=True)
+
+        with col_btn3:
+            btn_lock = st.button("🔒 Bloquear sorteio", use_container_width=True)
+
+        if btn_lock:
+            st.session_state.pin_ok = False
+            st.rerun()
+
+        if btn_limpar:
+            st.session_state.sorteados = []
+            st.session_state.historico = []
+            st.session_state.rodada    = 0
+            st.rerun()
+
+        # ── Executa sorteio ──────────────────────────────────────────────
+        if btn_sortear and pode_sortear:
+            n = min(qtd_sorteio, len(pool_restante))
+            sorteados_df = pool_restante.sample(n=n, random_state=random.randint(0, 99999))
+            nomes_sorteados = sorteados_df["nome"].tolist()
+
+            # Animação de suspense
+            placeholder = st.empty()
+            emojis = ["🎲", "🎰", "🎯", "⭐", "🏆"]
+            for i in range(12):
+                emoji = emojis[i % len(emojis)]
+                placeholder.markdown(
+                    f"<div style='text-align:center; font-size:3rem; padding:20px;'>{emoji} Sorteando...</div>",
+                    unsafe_allow_html=True
+                )
+                time.sleep(0.12)
+            placeholder.empty()
+
+            st.session_state.sorteados = list(zip(
+                nomes_sorteados,
+                sorteados_df["grupo_etario"].tolist(),
+                sorteados_df["nascimento_fmt"].tolist(),
+                sorteados_df["idade"].tolist(),
+            ))
+            st.session_state.historico.append(nomes_sorteados)
+            st.session_state.rodada += 1
+            st.rerun()
+
+        # ── Exibe resultado da rodada atual ──────────────────────────────
+        if st.session_state.sorteados:
+            st.markdown(
+                f"<div class='confetti-text'>🏆 Rodada {st.session_state.rodada} — "
+                f"{len(st.session_state.sorteados)} sorteados! 🎉</div>",
+                unsafe_allow_html=True
+            )
+
+            for i, (nome, grupo, nasc, idade) in enumerate(st.session_state.sorteados, 1):
+                cor_grupo = CORES.get(grupo, "#888")
+                idade_str = f"{int(idade)} anos" if pd.notna(idade) else "—"
+                st.markdown(f"""
+                <div class='winner-card'>
+                    <div class='winner-number'>{i}</div>
+                    <div>
+                        <div class='winner-name'>{nome.strip()}</div>
+                        <div class='winner-detail'>
+                            <span style='color:{cor_grupo};'>● {grupo}</span>
+                            &nbsp;·&nbsp; {nasc}
+                            &nbsp;·&nbsp; {idade_str}
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+            # Download da rodada
+            df_exp = pd.DataFrame(
+                st.session_state.sorteados,
+                columns=["Nome","Grupo Etário","Nascimento","Idade"]
+            )
+            df_exp.index = range(1, len(df_exp)+1)
+            csv_sort = df_exp.to_csv(index=True).encode("utf-8-sig")
+            st.download_button(
+                f"⬇️ Baixar resultado — Rodada {st.session_state.rodada}",
+                data=csv_sort,
+                file_name=f"sorteio_rodada_{st.session_state.rodada}.csv",
+                mime="text/csv",
+            )
+
+        # ── Histórico de rodadas ─────────────────────────────────────────
+        if len(st.session_state.historico) > 1:
+            with st.expander(f"📜 Histórico ({len(st.session_state.historico)} rodadas)", expanded=False):
+                for i, rodada_nomes in enumerate(st.session_state.historico, 1):
+                    marcador = "🏆" if i == st.session_state.rodada else f"#{i}"
+                    st.markdown(f"**{marcador} Rodada {i}** — {len(rodada_nomes)} sorteados")
+                    for nome in rodada_nomes:
+                        st.markdown(f"&nbsp;&nbsp;&nbsp;• {nome.strip()}")
+                    st.divider()
+
+        elif not st.session_state.sorteados and not pool_restante.empty:
+            st.info("👆 Clique em **Realizar Sorteio** para sortear os participantes.")
+
+        if pool_restante.empty and st.session_state.rodada > 0:
+            st.warning("⚠️ Todos os participantes do pool já foram sorteados! Clique em **Reiniciar tudo** para um novo ciclo.")
+
+# ── Rodapé ───────────────────────────────────────────────────────────────────
 st.divider()
 st.markdown(
     "<p style='text-align:center;color:#555;font-size:0.8rem;'>"
